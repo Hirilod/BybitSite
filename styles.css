@@ -1,0 +1,122 @@
+﻿.app {
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.market-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
+.table-scroll {
+  overflow: auto;
+  border-radius: 16px;
+  position: relative;
+}
+
+.chart-cell {
+  text-align: center;
+  position: sticky;
+  right: 0;
+  background: rgba(16, 21, 30, 0.9);
+}
+
+.table-scroll .scroll-shadow {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(15, 19, 26, 0) 0%, rgba(15, 19, 26, 0.95) 100%);
+}
+
+.table-scroll .scroll-bar-container {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 0 0 0;
+  background: rgba(15, 19, 26, 0.95);
+}
+
+.table-scroll .scroll-bar-container::after {
+  content: '';
+  display: block;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+.app {
+  min-height: 100vh;
+  padding: 16px 20px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: #7e8a9a;
+  font-size: 13px;
+}
+
+.overview {
+  background: rgba(28, 35, 47, 0.85);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.overview h2 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+}
+
+.table-section {
+  background: rgba(28, 35, 47, 0.85);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-scroll {
+  overflow: auto;
+  border-radius: 14px;
+  max-height: calc(100vh - 260px);
+  position: relative;
+}
+
+.market-table thead th {
+  background: rgba(16, 21, 30, 0.92);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.market-table tbody td {
+  padding: 10px 12px;
+}
