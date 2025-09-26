@@ -1,10 +1,10 @@
-﻿import type { MarketResponse, CandlePoint, TimeframeId } from './types';
-import { TIMEFRAME_INTERVAL } from './types';
+﻿import type { MarketResponse, CandlePoint, TimeframeId } from "./types";
+import { TIMEFRAME_INTERVAL } from "./types";
 
-const MARKET_ENDPOINT = '/api/market';
+const MARKET_ENDPOINT = "/api/market";
 
-export async function fetchMarketSnapshot(): Promise<MarketResponse> {
-  const response = await fetch(MARKET_ENDPOINT);
+export async function fetchMarketSnapshot(init?: RequestInit): Promise<MarketResponse> {
+  const response = await fetch(MARKET_ENDPOINT, init);
   if (!response.ok) {
     throw new Error(`API error ${response.status}`);
   }

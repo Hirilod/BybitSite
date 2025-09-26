@@ -114,6 +114,11 @@ class MarketUpdater {
                 return;
             }
             const timeframe = constants_1.TIMEFRAME_CONFIG[this.timeframeCursor].id;
+            if (timeframe === 'D1') {
+                this.advanceCursor();
+                this.candleTimer = setTimeout(loop, this.options.candleIntervalMs);
+                return;
+            }
             const symbol = this.symbols[this.symbolCursor];
             try {
                 const candle = await (0, bybitClient_1.fetchLatestCandle)(symbol, timeframe);

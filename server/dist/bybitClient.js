@@ -60,6 +60,9 @@ async function fetchLinearTickers() {
     return result.list.map((item) => ({
         symbol: item.symbol,
         lastPrice: parseNumber(item.lastPrice),
+        prevPrice24h: parseNumber(item.prevPrice24h),
+        price24hPercent: parseNumber(item.price24hPcnt),
+        turnover24h: parseNumber(item.turnover24h),
         timestamp: now
     }));
 }

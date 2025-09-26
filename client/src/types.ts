@@ -1,4 +1,4 @@
-﻿export const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
+export const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as const;
 export type TimeframeId = (typeof TIMEFRAMES)[number];
 
 export const TIMEFRAME_INTERVAL: Record<TimeframeId, string> = {
@@ -60,3 +60,12 @@ export interface CandlePoint {
   close: number;
   volume: number;
 }
+export const TIMEFRAME_DURATION_MS: Record<TimeframeId, number> = {
+  M1: 60 * 1000,
+  M5: 5 * 60 * 1000,
+  M15: 15 * 60 * 1000,
+  M30: 30 * 60 * 1000,
+  H1: 60 * 60 * 1000,
+  H4: 4 * 60 * 60 * 1000,
+  D1: 24 * 60 * 60 * 1000
+};

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MarketStore = void 0;
 const constants_1 = require("./constants");
+const DAY_MS = 24 * 60 * 60 * 1000;
 function createEmptyEntry(instrument) {
     return {
         instrument,
@@ -62,8 +63,43 @@ class MarketStore {
         }
         entry.lastPrice = snapshot.lastPrice;
         entry.lastPriceUpdatedAt = snapshot.timestamp;
+        const metrics = entry.metricsByTimeframe;
+        for (const item of constants_1.TIMEFRAME_CONFIG) {
+            const tf = item.id;
+            if (tf === 'D1') {
+                continue;
+            }
+            const tfMetrics = metrics[tf];
+            if (!tfMetrics) {
+                continue;
+            }
+            tfMetrics.changePercent = calculateChangePercent(snapshot.lastPrice, tfMetrics.openPrice);
+            tfMetrics.updatedAt = snapshot.timestamp;
+        }
+        const { prevPrice24h, price24hPercent, turnover24h } = snapshot;
+        if (prevPrice24h !== null || price24hPercent !== null || turnover24h !== null) {
+            const existing = metrics.D1;
+            const openPrice = prevPrice24h ?? existing?.openPrice ?? snapshot.lastPrice ?? 0;
+            const changePercent = price24hPercent !== null
+                ? price24hPercent * 100
+                : calculateChangePercent(snapshot.lastPrice, openPrice);
+            const turnover = turnover24h ?? existing?.turnover ?? 0;
+            const volume = turnover24h ?? existing?.volume ?? 0;
+            metrics.D1 = {
+                timeframe: 'D1',
+                openPrice,
+                openTime: snapshot.timestamp - DAY_MS,
+                changePercent,
+                volume,
+                turnover,
+                updatedAt: snapshot.timestamp
+            };
+        }
     }
     updateCandle(snapshot) {
+        if (snapshot.timeframe === 'D1') {
+            return;
+        }
         const instrument = this.instruments.get(snapshot.symbol) ?? {
             symbol: snapshot.symbol,
             baseCoin: snapshot.symbol,

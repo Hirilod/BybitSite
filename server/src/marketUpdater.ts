@@ -134,6 +134,11 @@ export class MarketUpdater {
         return;
       }
       const timeframe = TIMEFRAME_CONFIG[this.timeframeCursor]!.id as TimeframeId;
+      if (timeframe === 'D1') {
+        this.advanceCursor();
+        this.candleTimer = setTimeout(loop, this.options.candleIntervalMs);
+        return;
+      }
       const symbol = this.symbols[this.symbolCursor]!;
       try {
         const candle = await fetchLatestCandle(symbol, timeframe);
@@ -168,3 +173,4 @@ export class MarketUpdater {
     }
   }
 }
+

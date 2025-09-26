@@ -7,6 +7,9 @@ export interface InstrumentSummary {
 export interface TickerSnapshot {
     symbol: string;
     lastPrice: number | null;
+    prevPrice24h: number | null;
+    price24hPercent: number | null;
+    turnover24h: number | null;
     timestamp: number;
 }
 export interface CandleSnapshot {
