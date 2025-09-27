@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MarketStore = void 0;
 const constants_1 = require("./constants");
-const DAY_MS = 24 * 60 * 60 * 1000;
 function createEmptyEntry(instrument) {
     return {
         instrument,
@@ -69,37 +68,48 @@ class MarketStore {
             if (tf === 'D1') {
                 continue;
             }
-            const tfMetrics = metrics[tf];
-            if (!tfMetrics) {
+            const duration = TIMEFRAME_DURATION.get(tf);
+            if (!duration || !Number.isFinite(duration)) {
                 continue;
+            }
+            const periodStart = Math.floor(snapshot.timestamp / duration) * duration;
+            let tfMetrics = metrics[tf];
+            if (!tfMetrics || tfMetrics.openTime !== periodStart) {
+                tfMetrics = {
+                    timeframe: tf,
+                    openPrice: snapshot.lastPrice ?? 0,
+                    openTime: periodStart,
+                    changePercent: 0,
+                    volume: 0,
+                    turnover: 0,
+                    updatedAt: snapshot.timestamp
+                };
+                metrics[tf] = tfMetrics;
             }
             tfMetrics.changePercent = calculateChangePercent(snapshot.lastPrice, tfMetrics.openPrice);
             tfMetrics.updatedAt = snapshot.timestamp;
         }
         const { prevPrice24h, price24hPercent, turnover24h } = snapshot;
-        if (prevPrice24h !== null || price24hPercent !== null || turnover24h !== null) {
-            const existing = metrics.D1;
-            const openPrice = prevPrice24h ?? existing?.openPrice ?? snapshot.lastPrice ?? 0;
-            const changePercent = price24hPercent !== null
-                ? price24hPercent * 100
-                : calculateChangePercent(snapshot.lastPrice, openPrice);
-            const turnover = turnover24h ?? existing?.turnover ?? 0;
-            const volume = turnover24h ?? existing?.volume ?? 0;
-            metrics.D1 = {
-                timeframe: 'D1',
-                openPrice,
-                openTime: snapshot.timestamp - DAY_MS,
-                changePercent,
-                volume,
-                turnover,
-                updatedAt: snapshot.timestamp
-            };
-        }
+        const d1Duration = TIMEFRAME_DURATION.get('D1') ?? 24 * 60 * 60 * 1000;
+        const periodStart = Math.floor(snapshot.timestamp / d1Duration) * d1Duration;
+        const existingD1 = metrics.D1;
+        const openPrice = prevPrice24h ?? existingD1?.openPrice ?? snapshot.lastPrice ?? 0;
+        const changePercent = price24hPercent !== null
+            ? price24hPercent * 100
+            : calculateChangePercent(snapshot.lastPrice, openPrice);
+        const volume = turnover24h ?? existingD1?.volume ?? 0;
+        const turnover = turnover24h ?? existingD1?.turnover ?? 0;
+        metrics.D1 = {
+            timeframe: 'D1',
+            openPrice,
+            openTime: periodStart,
+            changePercent,
+            volume,
+            turnover,
+            updatedAt: snapshot.timestamp
+        };
     }
     updateCandle(snapshot) {
-        if (snapshot.timeframe === 'D1') {
-            return;
-        }
         const instrument = this.instruments.get(snapshot.symbol) ?? {
             symbol: snapshot.symbol,
             baseCoin: snapshot.symbol,

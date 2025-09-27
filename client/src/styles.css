@@ -145,7 +145,7 @@ body {
 
 .table-scroll {
   overflow-x: auto;
-  overflow-y: auto;
+  overflow-y: hidden;
   max-height: calc(100vh - 260px);
   border-radius: 16px;
   position: relative;
@@ -232,6 +232,15 @@ body {
 .table-body {
   position: relative;
   min-height: 280px;
+}
+.metric-cell.change-positive,
+.mobile-metric-change.change-positive {
+  color: #02c076;
+}
+  
+.metric-cell.change-negative,
+.mobile-metric-change.change-negative {
+  color: #f6465d;
 }
 
 .table-placeholder {

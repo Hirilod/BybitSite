@@ -293,6 +293,7 @@ const DesktopRow = memo(function DesktopRow({ entry, flashes, isEven, style }: R
               "flash-down": flashDirection === "down",
               "first-change-cell": index === 0,
             })}
+            color="red"
           >
             {percentInfo.text}
           </div>
