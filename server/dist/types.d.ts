@@ -20,6 +20,7 @@ export interface CandleSnapshot {
     high: number;
     low: number;
     close: number;
+    prevClose: number | null;
     volume: number;
     turnover: number;
     fetchedAt: number;
@@ -27,6 +28,7 @@ export interface CandleSnapshot {
 export interface TimeframeMetrics {
     timeframe: TimeframeId;
     openPrice: number;
+    baselinePrice: number | null;
     openTime: number;
     changePercent: number | null;
     volume: number;

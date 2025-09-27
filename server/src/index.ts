@@ -1,4 +1,4 @@
-﻿import cors from 'cors';
+import cors from 'cors';
 import express from 'express';
 import { MarketUpdater } from './marketUpdater';
 import { TIMEFRAME_CONFIG, type TimeframeId } from './constants';
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
           high: item.high,
           low: item.low,
           close: item.close,
+          prevClose: item.prevClose,
           volume: item.volume
         }))
       });

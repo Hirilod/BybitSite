@@ -1,4 +1,4 @@
-﻿import type { TimeframeId } from './constants';
+import type { TimeframeId } from './constants';
 
 export interface InstrumentSummary {
   symbol: string;
@@ -23,20 +23,24 @@ export interface CandleSnapshot {
   high: number;
   low: number;
   close: number;
+  prevClose: number | null;
   volume: number;
   turnover: number;
   fetchedAt: number;
 }
 
+
 export interface TimeframeMetrics {
   timeframe: TimeframeId;
   openPrice: number;
+  baselinePrice: number | null;
   openTime: number;
   changePercent: number | null;
   volume: number;
   turnover: number;
   updatedAt: number;
 }
+
 
 export interface MarketEntry {
   instrument: InstrumentSummary;

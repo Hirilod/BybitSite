@@ -47,6 +47,7 @@ async function main() {
                     high: item.high,
                     low: item.low,
                     close: item.close,
+                    prevClose: item.prevClose,
                     volume: item.volume
                 }))
             });

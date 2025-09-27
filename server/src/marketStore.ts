@@ -79,56 +79,47 @@ export class MarketStore {
 
     for (const item of TIMEFRAME_CONFIG) {
       const tf = item.id as TimeframeId;
-      if (tf === 'D1') {
+      const tfMetrics = metrics[tf];
+      if (!tfMetrics) {
         continue;
       }
-      const duration = TIMEFRAME_DURATION.get(tf);
-      if (!duration || !Number.isFinite(duration)) {
+      const baseline = tfMetrics.baselinePrice ?? tfMetrics.openPrice;
+      if (baseline === null || baseline === undefined) {
         continue;
       }
-      const periodStart = Math.floor(snapshot.timestamp / duration) * duration;
-      let tfMetrics = metrics[tf];
-      if (!tfMetrics || tfMetrics.openTime !== periodStart) {
-        tfMetrics = {
-          timeframe: tf,
-          openPrice: snapshot.lastPrice ?? 0,
-          openTime: periodStart,
-          changePercent: 0,
-          volume: 0,
-          turnover: 0,
-          updatedAt: snapshot.timestamp
-        };
-        metrics[tf] = tfMetrics;
-      }
-      tfMetrics.changePercent = calculateChangePercent(snapshot.lastPrice, tfMetrics.openPrice);
+      tfMetrics.changePercent = calculateChangePercent(snapshot.lastPrice, baseline);
       tfMetrics.updatedAt = snapshot.timestamp;
     }
 
-    const { prevPrice24h, price24hPercent, turnover24h } = snapshot;
-    const d1Duration = TIMEFRAME_DURATION.get('D1') ?? 24 * 60 * 60 * 1000;
-    const periodStart = Math.floor(snapshot.timestamp / d1Duration) * d1Duration;
-    const existingD1 = metrics.D1;
-    const openPrice = prevPrice24h ?? existingD1?.openPrice ?? snapshot.lastPrice ?? 0;
-    const changePercent = price24hPercent !== null
-      ? price24hPercent * 100
-      : calculateChangePercent(snapshot.lastPrice, openPrice);
-    const volume = turnover24h ?? existingD1?.volume ?? 0;
-    const turnover = turnover24h ?? existingD1?.turnover ?? 0;
+    const d1Metrics = metrics.D1;
+    if (!d1Metrics && snapshot.prevPrice24h !== null) {
+      metrics.D1 = {
+        timeframe: 'D1',
+        openPrice: snapshot.prevPrice24h,
+        baselinePrice: snapshot.prevPrice24h,
+        openTime: snapshot.timestamp,
+        changePercent: calculateChangePercent(snapshot.lastPrice, snapshot.prevPrice24h),
+        volume: snapshot.turnover24h ?? 0,
+        turnover: snapshot.turnover24h ?? 0,
+        updatedAt: snapshot.timestamp
+      };
+    } else if (d1Metrics) {
+      if ((d1Metrics.baselinePrice === null || d1Metrics.baselinePrice === undefined) && snapshot.prevPrice24h !== null) {
+        d1Metrics.baselinePrice = snapshot.prevPrice24h;
+      }
+      const baseline = d1Metrics.baselinePrice ?? d1Metrics.openPrice;
+      if (baseline !== null && baseline !== undefined) {
+        d1Metrics.changePercent = calculateChangePercent(snapshot.lastPrice, baseline);
+        d1Metrics.updatedAt = snapshot.timestamp;
+      }
+    }
+  }
 
-    metrics.D1 = {
-      timeframe: 'D1',
-      openPrice,
-      openTime: periodStart,
-      changePercent,
-      volume,
-      turnover,
-      updatedAt: snapshot.timestamp
-    };
-  }  updateCandle(snapshot: CandleSnapshot): void {
+  updateCandle(snapshot: CandleSnapshot): void {
     const instrument = this.instruments.get(snapshot.symbol) ?? {
       symbol: snapshot.symbol,
       baseCoin: snapshot.symbol,
-      quoteCoin: ''
+      quoteCoin: '',
     };
     if (!this.entries.has(snapshot.symbol)) {
       this.entries.set(snapshot.symbol, createEmptyEntry(instrument));
@@ -137,15 +128,17 @@ export class MarketStore {
     if (!entry) {
       return;
     }
-    const changePercent = calculateChangePercent(snapshot.close, snapshot.open);
+    const baseline = snapshot.prevClose ?? snapshot.open;
+    const changePercent = baseline !== null ? calculateChangePercent(snapshot.close, baseline) : null;
     const metrics: TimeframeMetrics = {
       timeframe: snapshot.timeframe,
       openPrice: snapshot.open,
+      baselinePrice: baseline ?? null,
       openTime: snapshot.startTime,
       changePercent,
       volume: snapshot.volume,
       turnover: snapshot.turnover,
-      updatedAt: snapshot.fetchedAt
+      updatedAt: snapshot.fetchedAt,
     };
     entry.metricsByTimeframe[snapshot.timeframe] = metrics;
   }

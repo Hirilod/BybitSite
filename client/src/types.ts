@@ -24,6 +24,7 @@ export const TIMEFRAME_LABEL: Record<TimeframeId, string> = {
 export interface TimeframeMetrics {
   timeframe: TimeframeId;
   openPrice: number;
+  baselinePrice: number | null;
   openTime: number;
   changePercent: number | null;
   volume: number;
@@ -58,6 +59,7 @@ export interface CandlePoint {
   high: number;
   low: number;
   close: number;
+  prevClose: number | null;
   volume: number;
 }
 export const TIMEFRAME_DURATION_MS: Record<TimeframeId, number> = {

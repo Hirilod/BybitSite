@@ -1,4 +1,4 @@
-﻿import { BYBIT_API_BASE, TIMEFRAME_CONFIG, type TimeframeId } from './constants';
+import { BYBIT_API_BASE, TIMEFRAME_CONFIG, type TimeframeId } from './constants';
 import type { CandleSnapshot, InstrumentSummary, TickerSnapshot } from './types';
 
 const API_TIMEOUT_MS = 15000;
@@ -135,13 +135,19 @@ export async function fetchLatestCandle(
   const interval = INTERVAL_BY_TIMEFRAME[timeframe];
   const path = `/v5/market/kline?category=linear&symbol=${encodeURIComponent(
     symbol
-  )}&interval=${interval}&limit=1`;
+  )}&interval=${interval}&limit=2`;
   const { result } = await fetchJson<KlineResult>(path);
-  const [latest] = result.list;
+  if (!result.list || result.list.length === 0) {
+    return null;
+  }
+  const sorted = [...result.list].sort((a, b) => Number(a[0]) - Number(b[0]));
+  const latest = sorted[sorted.length - 1];
   if (!latest) {
     return null;
   }
+  const previous = sorted.length > 1 ? sorted[sorted.length - 2] : undefined;
   const [start, open, high, low, close, volume, turnover] = latest;
+  const prevClose = previous ? Number(previous[4]) : null;
   return {
     symbol,
     timeframe,
@@ -150,11 +156,13 @@ export async function fetchLatestCandle(
     high: Number(high),
     low: Number(low),
     close: Number(close),
+    prevClose,
     volume: Number(volume),
     turnover: Number(turnover),
-    fetchedAt: Date.now()
+    fetchedAt: Date.now(),
   };
 }
+
 
 export async function fetchCandleSeries(
   symbol: string,
@@ -168,8 +176,10 @@ export async function fetchCandleSeries(
   )}&interval=${interval}&limit=${boundedLimit}`;
   const { result } = await fetchJson<KlineResult>(path);
   const now = Date.now();
-  const items = result.list.map((row) => {
+  const sorted = [...result.list].sort((a, b) => Number(a[0]) - Number(b[0]));
+  const items = sorted.map((row, index, array) => {
     const [start, open, high, low, close, volume, turnover] = row;
+    const prev = index > 0 ? array[index - 1] : undefined;
     return {
       symbol,
       timeframe,
@@ -178,10 +188,11 @@ export async function fetchCandleSeries(
       high: Number(high),
       low: Number(low),
       close: Number(close),
+      prevClose: prev ? Number(prev[4]) : null,
       volume: Number(volume),
       turnover: Number(turnover),
-      fetchedAt: now
+      fetchedAt: now,
     } satisfies CandleSnapshot;
   });
-  return items.reverse();
+  return items;
 }
