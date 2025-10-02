@@ -6,8 +6,8 @@ import classNames from "classnames";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/ru";
-import { fetchMarketSnapshot } from "../api";
-import type { MarketResponse, MarketTableEntry, TimeframeId } from "../types";
+import { fetchMarketSnapshot, subscribeMarketSnapshots } from "../api";
+import type { MarketResponse, MarketTableEntry, TimeframeId, TimeframeMetrics } from "../types";
 import { TIMEFRAMES, TIMEFRAME_DURATION_MS } from "../types";
 
 dayjs.extend(relativeTime);
@@ -43,7 +43,6 @@ interface RowData {
   flashes: Record<string, FlashDirection>;
 }
 
-const POLL_DELAY_MS = 3000;
 const FLASH_DURATION_MS = 1200;
 const ROW_HEIGHT = 64;
 const MIN_VISIBLE_ROWS = 8;
@@ -77,6 +76,60 @@ function sortByPopularity(entries: MarketTableEntry[]): MarketTableEntry[] {
     }
     return a.symbol.localeCompare(b.symbol);
   });
+}
+
+
+function mergeMetrics(
+  base: Partial<Record<TimeframeId, TimeframeMetrics>>,
+  patch?: Partial<Record<TimeframeId, TimeframeMetrics>>
+): Partial<Record<TimeframeId, TimeframeMetrics>> {
+  const snapshot = { ...base };
+  if (!patch) {
+    return snapshot;
+  }
+
+  for (const [timeframe, metric] of Object.entries(patch) as Array<
+    [TimeframeId, TimeframeMetrics | undefined]
+  >) {
+    if (metric !== undefined) {
+      snapshot[timeframe] = metric;
+    }
+  }
+  return snapshot;
+}
+
+function mergeEntry(base: MarketTableEntry, patch: MarketTableEntry): MarketTableEntry {
+  const metrics = mergeMetrics(base.metrics, patch.metrics);
+  return {
+    ...base,
+    ...patch,
+    metrics
+  };
+}
+
+function mergeMarketResponses(current: MarketResponse, incoming: MarketResponse): MarketResponse {
+  const incomingMap = new Map(incoming.entries.map((entry) => [entry.symbol, entry]));
+  const mergedEntries: MarketTableEntry[] = current.entries.map((entry) => {
+    const patch = incomingMap.get(entry.symbol);
+    if (!patch) {
+      return entry;
+    }
+    incomingMap.delete(entry.symbol);
+    return mergeEntry(entry, patch);
+  });
+
+  for (const patch of incomingMap.values()) {
+    mergedEntries.push(patch);
+  }
+
+  const updatedAt = Math.max(current.updatedAt ?? 0, incoming.updatedAt ?? 0);
+  const overview = incoming.overview?.length ? incoming.overview : current.overview;
+
+  return {
+    updatedAt,
+    entries: mergedEntries,
+    overview
+  };
 }
 
 function formatPrice(value: number | null): string {
@@ -461,6 +514,7 @@ export function MarketPage(): JSX.Element {
   const [flashes, setFlashes] = useState<Record<string, FlashDirection>>({});
 
   const previousSnapshotRef = useRef<MarketResponse | null>(null);
+  const snapshotRef = useRef<MarketResponse | null>(null);
   const flashTimersRef = useRef<Map<string, number>>(new Map());
   const viewportHeight = useViewportHeight();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -476,41 +530,66 @@ export function MarketPage(): JSX.Element {
 
   useEffect(() => {
     let active = true;
-    let timeoutId: number | undefined;
-    const controllers = new Set<AbortController>();
+    let unsubscribe: (() => void) | null = null;
+    const abortController = new AbortController();
 
-    const scheduleNext = () => {
-      if (!active) return;
-      timeoutId = window.setTimeout(run, POLL_DELAY_MS);
+    setLoading(true);
+
+    const startSubscription = () => {
+      if (unsubscribe) {
+        return;
+      }
+      unsubscribe = subscribeMarketSnapshots(
+        (snapshot) => {
+          if (!active || !snapshotRef.current) {
+            return;
+          }
+          setData((previous) => {
+            const base = previous ?? snapshotRef.current!;
+            const merged = mergeMarketResponses(base, snapshot);
+            snapshotRef.current = merged;
+            return merged;
+          });
+        },
+        (err) => {
+          if (!active) {
+            return;
+          }
+          console.error(err);
+          setError((prev) => prev ?? err.message ?? "Не удалось получить данные");
+        }
+      );
     };
 
-    const run = async (): Promise<void> => {
-      const controller = new AbortController();
-      controllers.add(controller);
-      try {
-        const snapshot = await fetchMarketSnapshot({ signal: controller.signal });
-        if (!active) return;
+    fetchMarketSnapshot({ signal: abortController.signal })
+      .then((snapshot) => {
+        if (!active) {
+          return;
+        }
+        snapshotRef.current = snapshot;
         setData(snapshot);
         setError(null);
         setLoading(false);
-      } catch (err) {
-        if (controller.signal.aborted || !active) return;
+        startSubscription();
+      })
+      .catch((err) => {
+        if (!active) {
+          return;
+        }
+        if (err instanceof DOMException && err.name === "AbortError") {
+          return;
+        }
         console.error(err);
         setError(err instanceof Error ? err.message : "Неизвестная ошибка");
         setLoading(false);
-      } finally {
-        controllers.delete(controller);
-        if (active) scheduleNext();
-      }
-    };
-
-    void run();
+      });
 
     return () => {
       active = false;
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
-      for (const controller of controllers) controller.abort();
-      controllers.clear();
+      abortController.abort();
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, []);
 
@@ -699,7 +778,7 @@ export function MarketPage(): JSX.Element {
       </header>
 
       <section className="overview">
-        <h2>Изменение %</h2>
+        <h2>�?зменение %</h2>
         <div className="overview-row">
           {TIMEFRAMES.map((timeframe) => {
             const dataPoint = overviewMap.get(timeframe) ?? { gainers: 0, losers: 0 };
@@ -743,7 +822,7 @@ export function MarketPage(): JSX.Element {
                     className="cell header group-header"
                     style={{ gridColumn: `${changeStart} / span ${TIMEFRAMES.length}` }}
                   >
-                    Изменение %
+                    �?зменение %
                   </div>
                   <div
                     role="columnheader"
@@ -841,8 +920,3 @@ export function MarketPage(): JSX.Element {
     </div>
   );
 }
-
-
-
-
-
