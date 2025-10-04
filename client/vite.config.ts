@@ -13,7 +13,10 @@ export default defineConfig({
         target: 'http://localhost:4000',
         changeOrigin: true
       }
-    }
+    },
+    allowedHosts: [
+      "dfgfdgfdgf.ai-medgpt.store"
+    ]
   },
   preview: {
     port: 4173

@@ -12,7 +12,7 @@ function resolveWsUrl(): string {
     return envUrl;
   }
   if (typeof window === "undefined") {
-    return "ws://127.0.0.1:8765";
+    return "ws://45.130.215.131:8765";
   }
   const { protocol, hostname } = window.location;
   const wsProtocol = protocol === "https:" ? "wss" : "ws";

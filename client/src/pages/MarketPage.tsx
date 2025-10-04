@@ -43,6 +43,22 @@ interface RowData {
   flashes: Record<string, FlashDirection>;
 }
 
+interface TimeframeOverviewStats {
+  gainers: number;
+  losers: number;
+  neutral: number;
+  positiveSum: number;
+  negativeSum: number;
+}
+
+const EMPTY_OVERVIEW_STATS: TimeframeOverviewStats = {
+  gainers: 0,
+  losers: 0,
+  neutral: 0,
+  positiveSum: 0,
+  negativeSum: 0
+};
+
 const FLASH_DURATION_MS = 1200;
 const ROW_HEIGHT = 64;
 const MIN_VISIBLE_ROWS = 8;
@@ -171,6 +187,18 @@ function formatVolume(value: number | null | undefined, direction?: FlashDirecti
     notation: "compact",
     maximumFractionDigits: 2
   })}`;
+}
+
+function formatAggregatePercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  const abs = Math.abs(value);
+  const fractionDigits = abs >= 100 ? 0 : 2;
+  return abs.toLocaleString("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: fractionDigits
+  });
 }
 
 function getChangeClass(value: number | null): string {
@@ -679,36 +707,84 @@ export function MarketPage(): JSX.Element {
     });
   }, []);
 
-  const overviewMap = useMemo(() => {
-    if (!data) {
-      return new Map<TimeframeId, { gainers: number; losers: number }>();
-    }
-    const now = data.updatedAt ?? Date.now();
-    const result = new Map<TimeframeId, { gainers: number; losers: number }>();
+  const { overviewMap, aggregateShare, d1Sum } = useMemo(() => {
+    const makeStats = (): TimeframeOverviewStats => ({
+      gainers: 0,
+      losers: 0,
+      neutral: 0,
+      positiveSum: 0,
+      negativeSum: 0
+    });
+
+    const map = new Map<TimeframeId, TimeframeOverviewStats>();
     for (const timeframe of TIMEFRAMES) {
-      const windowMs = TIMEFRAME_DURATION_MS[timeframe];
-      let gainers = 0;
-      let losers = 0;
-      for (const entry of data.entries) {
+      map.set(timeframe, makeStats());
+    }
+
+    if (!data) {
+      return {
+        overviewMap: map,
+        aggregateShare: { gainers: 0, losers: 0, positiveShare: 0, negativeShare: 0 },
+        d1Sum: { positive: 0, negative: 0 }
+      };
+    }
+
+    const now = data.updatedAt ?? Date.now();
+    let totalGainers = 0;
+    let totalLosers = 0;
+
+    for (const entry of data.entries) {
+      for (const timeframe of TIMEFRAMES) {
         const metric = entry.metrics[timeframe];
-        if (!metric || metric.changePercent === null) {
+        if (!metric || metric.changePercent === null || !Number.isFinite(metric.changePercent)) {
           continue;
         }
+
+        const windowMs = TIMEFRAME_DURATION_MS[timeframe];
         if (Number.isFinite(windowMs)) {
           const age = now - metric.openTime;
           if (age > windowMs) {
             continue;
           }
         }
+
+        const stats = map.get(timeframe);
+        if (!stats) {
+          continue;
+        }
+
         if (metric.changePercent > 0) {
-          gainers += 1;
+          stats.gainers += 1;
+          stats.positiveSum += metric.changePercent;
+          totalGainers += 1;
         } else if (metric.changePercent < 0) {
-          losers += 1;
+          stats.losers += 1;
+          stats.negativeSum += Math.abs(metric.changePercent);
+          totalLosers += 1;
+        } else {
+          stats.neutral += 1;
         }
       }
-      result.set(timeframe, { gainers, losers });
     }
-    return result;
+
+    const totalMoves = totalGainers + totalLosers;
+    const positiveShare = totalMoves === 0 ? 0 : (totalGainers / totalMoves) * 100;
+    const negativeShare = totalMoves === 0 ? 0 : 100 - positiveShare;
+    const d1Stats = map.get("D1") ?? makeStats();
+
+    return {
+      overviewMap: map,
+      aggregateShare: {
+        gainers: totalGainers,
+        losers: totalLosers,
+        positiveShare,
+        negativeShare
+      },
+      d1Sum: {
+        positive: d1Stats.positiveSum,
+        negative: d1Stats.negativeSum
+      }
+    };
   }, [data]);
 
   const sortedEntries = useMemo(() => {
@@ -778,10 +854,13 @@ export function MarketPage(): JSX.Element {
       </header>
 
       <section className="overview">
-        <h2>�?зменение %</h2>
+        <h2>Изменение %</h2>
         <div className="overview-row">
           {TIMEFRAMES.map((timeframe) => {
-            const dataPoint = overviewMap.get(timeframe) ?? { gainers: 0, losers: 0 };
+            const dataPoint = overviewMap.get(timeframe) ?? EMPTY_OVERVIEW_STATS;
+            const totalMoves = dataPoint.gainers + dataPoint.losers;
+            const positivePercent = totalMoves === 0 ? 0 : Math.round((dataPoint.gainers / totalMoves) * 100);
+            const negativePercent = totalMoves === 0 ? 0 : 100 - positivePercent;
             const isActive = sort?.timeframe === timeframe && sort?.mode === "change";
             const direction = isActive ? sort?.direction : undefined;
             return (
@@ -796,12 +875,30 @@ export function MarketPage(): JSX.Element {
                   {isActive && <span className="overview-direction">{direction === "desc" ? "▼" : "▲"}</span>}
                 </div>
                 <div className="overview-content">
-                  <span className="positive">▲ Рост {dataPoint.gainers}</span>
-                  <span className="negative">▼ Падение {dataPoint.losers}</span>
+                  <span className="positive">▲ Рост {dataPoint.gainers} ({positivePercent}%)</span>
+                  <span className="negative">▼ Падение {dataPoint.losers} ({negativePercent}%)</span>
                 </div>
               </button>
             );
           })}
+          <div className="overview-card summary-card" role="presentation">
+            <div className="overview-header">
+              <span>Сумма D1</span>
+            </div>
+            <div className="overview-content">
+              <span className="positive">▲ Рост {formatAggregatePercent(d1Sum.positive)}%</span>
+              <span className="negative">▼ Падение {formatAggregatePercent(d1Sum.negative)}%</span>
+            </div>
+          </div>
+          <div className="overview-card summary-card" role="presentation">
+            <div className="overview-header">
+              <span>Все таймфреймы</span>
+            </div>
+            <div className="overview-content">
+              <span className="positive">▲ Рост {aggregateShare.gainers} ({Math.round(aggregateShare.positiveShare)}%)</span>
+              <span className="negative">▼ Падение {aggregateShare.losers} ({Math.round(aggregateShare.negativeShare)}%)</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -822,7 +919,7 @@ export function MarketPage(): JSX.Element {
                     className="cell header group-header"
                     style={{ gridColumn: `${changeStart} / span ${TIMEFRAMES.length}` }}
                   >
-                    �?зменение %
+                    Изменение %
                   </div>
                   <div
                     role="columnheader"
