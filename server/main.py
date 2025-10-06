@@ -4,13 +4,20 @@
 import asyncio
 import time
 import json
-from typing import Dict, Any, List, Tuple, Set
+import math
+import os
+from typing import Dict, Any, List, Tuple, Set, Optional
 from contextlib import suppress
 
 import aiohttp
 import websockets
 from websockets import WebSocketServerProtocol
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
+
+try:
+    import redis.asyncio as redis_asyncio
+except Exception:  # pragma: no cover - redis optional
+    redis_asyncio = None
 
 # ========================= Конфиг =========================
 BYBIT_HTTP_BASE = "https://api.bybit.com"
@@ -29,6 +36,14 @@ TF_ORDER = ["M1", "M5", "M15", "H1", "H4", "D1"]
 
 BIND_HOST = "0.0.0.0"
 BIND_PORT = 8765
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:7000/0")
+INDEX_SLOT_MS = 60 * 60 * 1000
+INDEX_BASE_VALUE = 0
+INDEX_MAX_CANDLES = 1000
+INDEX_HISTORY_EXPORT = 720
+INDEX_REDIS_KEY = "market:index:candles:h1"
+INDEX_POLL_INTERVAL_SEC = 60
 
 MAX_TOPICS_PER_CONN = 200
 PING_INTERVAL = 20
@@ -54,6 +69,11 @@ overview: Dict[str, Dict[str, int]] = {tf: {"timeframe": tf, "gainers": 0, "lose
 clients: Set[WebSocketServerProtocol] = set()
 clients_lock = asyncio.Lock()
 _dirty_event = asyncio.Event()  # сигнал «изменилось — пора выслать полный снапшот»
+
+redis_client: Optional["redis_asyncio.Redis"] = None
+index_history: List[Dict[str, Any]] = []  # Только закрытые свечи
+index_prev_close_value: float = INDEX_BASE_VALUE
+index_active_candle: Optional[Dict[str, Any]] = None
 
 # ========================= Утилиты =========================
 def now_ms() -> int:
@@ -146,15 +166,207 @@ def recompute_overview():
         overview[tf]["gainers"] = g
         overview[tf]["losers"] = l
 
+
+def compute_d1_stats() -> Dict[str, Any]:
+    positive_sum = 0.0
+    negative_sum = 0.0
+    count = 0
+    for entry in entries.values():
+        metrics = entry.get("metrics") or {}
+        metric = metrics.get("D1")
+        if not metric:
+            continue
+        change = metric.get("changePercent")
+        if change is None or not math.isfinite(change):
+            continue
+        count += 1
+        change_value = float(change)
+        if change_value > 0:
+            positive_sum += change_value
+        elif change_value < 0:
+            negative_sum += abs(change_value)
+    net_percent = 0.0
+    if count > 0:
+        net_percent = (negative_sum - positive_sum) / count
+    return {
+        "positiveSum": positive_sum,
+        "negativeSum": negative_sum,
+        "count": count,
+        "netPercent": net_percent,
+    }
+
 def build_snapshot_json() -> Dict[str, Any]:
+    stats = compute_d1_stats()
+    history = export_index_history()
+    current_slot = 0
+    current_value = index_prev_close_value
+    if index_active_candle:
+        current_slot = int(index_active_candle.get("startTime", 0))
+        current_value = float(index_active_candle.get("close", current_value))
+    elif index_history:
+        current_slot = int(index_history[-1].get("startTime", 0))
+        current_value = float(index_history[-1].get("close", current_value))
+    summary = {
+        "latest": round(float(current_value), 4),
+        "baseValue": INDEX_BASE_VALUE,
+        "lastSlot": current_slot,
+        "netPercent": round(float(stats.get("netPercent", 0.0)), 4),
+        "positiveSum": round(float(stats.get("positiveSum", 0.0)), 4),
+        "negativeSum": round(float(stats.get("negativeSum", 0.0)), 4),
+        "count": int(stats.get("count", 0)),
+        "slotDuration": INDEX_SLOT_MS,
+    }
     return {
         "entries": list(entries.values()),
         "overview": list(overview.values()),
+        "indexSummary": summary,
+        "indexHistory": history,
         "updatedAt": now_ms(),
     }
 
 def mark_dirty():
     _dirty_event.set()
+
+
+async def init_index_storage():
+    global redis_client, index_history, index_prev_close_value, index_active_candle
+    if redis_asyncio is None:
+        print("[index] redis module is not available, using in-memory history only")
+        return
+    try:
+        redis_client = redis_asyncio.from_url(REDIS_URL, encoding="utf-8", decode_responses=True)
+        await redis_client.ping()
+    except Exception as exc:  # pragma: no cover - best effort connection
+        print(f"[index] failed to connect to redis ({exc}), using in-memory history")
+        redis_client = None
+        return
+
+    try:
+        raw_items = await redis_client.zrange(INDEX_REDIS_KEY, -INDEX_MAX_CANDLES, -1)
+        history: List[Dict[str, Any]] = []
+        for item in raw_items:
+            with suppress(Exception):
+                parsed = json.loads(item)
+                if isinstance(parsed, dict) and "startTime" in parsed:
+                    history.append(parsed)
+        history.sort(key=lambda it: it.get("startTime", 0))
+        index_history = history
+        if history:
+            last = history[-1]
+            index_prev_close_value = float(last.get("close", INDEX_BASE_VALUE))
+        else:
+            index_prev_close_value = INDEX_BASE_VALUE
+        index_active_candle = None
+        print(f"[index] loaded {len(history)} candles from redis")
+    except Exception as exc:  # pragma: no cover - best effort load
+        print(f"[index] failed to load history from redis ({exc}), using in-memory history")
+        index_history = []
+        index_prev_close_value = INDEX_BASE_VALUE
+        index_active_candle = None
+
+
+async def store_closed_candle(candle: Dict[str, Any]):
+    global index_history, index_prev_close_value, redis_client
+    snapshot = dict(candle)
+    index_history.append(snapshot)
+    if len(index_history) > INDEX_MAX_CANDLES:
+        index_history = index_history[-INDEX_MAX_CANDLES:]
+    index_prev_close_value = float(snapshot.get("close", index_prev_close_value))
+
+    if redis_client is None:
+        return
+
+    try:
+        payload = json.dumps(snapshot, separators=(",", ":"))
+        score = snapshot["startTime"]
+        await redis_client.zremrangebyscore(INDEX_REDIS_KEY, score, score)
+        await redis_client.zadd(INDEX_REDIS_KEY, {payload: score})
+        count = await redis_client.zcard(INDEX_REDIS_KEY)
+        excess = count - INDEX_MAX_CANDLES
+        if excess > 0:
+            await redis_client.zremrangebyrank(INDEX_REDIS_KEY, 0, excess - 1)
+    except Exception as exc:  # pragma: no cover - best effort persistence
+        print(f"[index] redis write failed ({exc}), switching to in-memory mode")
+        with suppress(Exception):
+            await redis_client.close()
+        redis_client = None
+
+
+async def maybe_capture_index_candle(force: bool = False):
+    global index_active_candle, index_prev_close_value
+
+    stats = compute_d1_stats()
+    count = int(stats.get("count", 0))
+    now = now_ms()
+    slot_start = (now // INDEX_SLOT_MS) * INDEX_SLOT_MS
+
+    # закрываем предыдущую свечу, если перешли на новый слот
+    if index_active_candle and slot_start > int(index_active_candle.get("startTime", 0)):
+        await store_closed_candle(index_active_candle)
+        index_active_candle = None
+
+    if index_active_candle is None:
+        if not force and count == 0:
+            return
+        open_value = index_prev_close_value
+        index_active_candle = {
+            "startTime": slot_start,
+            "open": round(open_value, 4),
+            "high": round(open_value, 4),
+            "low": round(open_value, 4),
+            "close": round(open_value, 4),
+            "netPercent": 0.0,
+            "positiveSum": 0.0,
+            "negativeSum": 0.0,
+            "count": 0,
+        }
+
+    if index_active_candle is None:
+        return
+
+    open_value = float(index_active_candle.get("open", index_prev_close_value))
+    net_percent = float(stats.get("netPercent", 0.0))
+    positive_sum = float(stats.get("positiveSum", 0.0))
+    negative_sum = float(stats.get("negativeSum", 0.0))
+    close_value = -net_percent
+
+    high_prev = float(index_active_candle.get("high", open_value))
+    low_prev = float(index_active_candle.get("low", open_value))
+    high_value = max(high_prev, close_value, open_value)
+    low_value = min(low_prev, close_value, open_value)
+
+    index_active_candle.update(
+        {
+            "close": round(close_value, 4),
+            "high": round(high_value, 4),
+            "low": round(low_value, 4),
+            "netPercent": round(net_percent, 4),
+            "positiveSum": round(positive_sum, 4),
+            "negativeSum": round(negative_sum, 4),
+            "count": count,
+        }
+    )
+
+    mark_dirty()
+
+
+async def index_candle_loop():
+    while True:
+        try:
+            await maybe_capture_index_candle()
+        except Exception as exc:  # pragma: no cover - guard loop
+            print(f"[index] capture loop error: {exc}")
+        await asyncio.sleep(INDEX_POLL_INTERVAL_SEC)
+
+
+def export_index_history() -> List[Dict[str, Any]]:
+    if len(index_history) <= INDEX_HISTORY_EXPORT:
+        history = list(index_history)
+    else:
+        history = index_history[-INDEX_HISTORY_EXPORT:]
+    if index_active_candle:
+        history = history + [dict(index_active_candle)]
+    return history
 
 # ========================= HTTP (REST) =========================
 async def http_get_json(session: aiohttp.ClientSession, url: str, params: Dict[str, Any]) -> Any:
@@ -378,11 +590,16 @@ async def init_state_and_ws():
     return tasks
 
 async def main():
+    await init_index_storage()
+
     # 1) Холодный старт + подписки Bybit
     ws_tasks = await init_state_and_ws()
 
+    await maybe_capture_index_candle(force=True)
+
     # 2) Бродкастер полного снапшота (с дебаунсом)
     debouncer_task = asyncio.create_task(debounce_broadcaster(), name="debouncer")
+    index_task = asyncio.create_task(index_candle_loop(), name="index-candles")
 
     # 3) Наш WebSocket-сервер
     async with websockets.serve(
@@ -403,10 +620,17 @@ async def main():
             debouncer_task.cancel()
             with suppress(asyncio.CancelledError):
                 await debouncer_task
+            index_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await index_task
             for t in ws_tasks:
                 t.cancel()
             with suppress(asyncio.CancelledError):
                 await asyncio.gather(*ws_tasks)
+
+    if redis_client is not None:
+        with suppress(Exception):
+            await redis_client.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

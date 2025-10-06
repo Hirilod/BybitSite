@@ -11,6 +11,11 @@ const ChartPage = lazy(async () => {
   return { default: module.ChartPage };
 });
 
+const IndexPage = lazy(async () => {
+  const module = await import("./pages/IndexPage");
+  return { default: module.IndexPage };
+});
+
 export default function App(): JSX.Element {
   return (
     <BrowserRouter>
@@ -18,10 +23,10 @@ export default function App(): JSX.Element {
         <Routes>
           <Route path="/" element={<MarketPage />} />
           <Route path="/chart/:symbol" element={<ChartPage />} />
+          <Route path="/index" element={<IndexPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>
   );
 }
-

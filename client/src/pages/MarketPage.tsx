@@ -141,10 +141,15 @@ function mergeMarketResponses(current: MarketResponse, incoming: MarketResponse)
   const updatedAt = Math.max(current.updatedAt ?? 0, incoming.updatedAt ?? 0);
   const overview = incoming.overview?.length ? incoming.overview : current.overview;
 
+  const indexSummary = incoming.indexSummary ?? current.indexSummary;
+  const indexHistory = incoming.indexHistory?.length ? incoming.indexHistory : current.indexHistory;
+
   return {
     updatedAt,
     entries: mergedEntries,
-    overview
+    overview,
+    indexSummary,
+    indexHistory
   };
 }
 
@@ -725,7 +730,7 @@ export function MarketPage(): JSX.Element {
       return {
         overviewMap: map,
         aggregateShare: { gainers: 0, losers: 0, positiveShare: 0, negativeShare: 0 },
-        d1Sum: { positive: 0, negative: 0 }
+        d1Sum: { positive: 0, negative: 0, netPercent: 0 }
       };
     }
 
@@ -772,6 +777,12 @@ export function MarketPage(): JSX.Element {
     const negativeShare = totalMoves === 0 ? 0 : 100 - positiveShare;
     const d1Stats = map.get("D1") ?? makeStats();
 
+    const summary = data.indexSummary ?? null;
+    if (summary) {
+      d1Stats.positiveSum = summary.positiveSum;
+      d1Stats.negativeSum = summary.negativeSum;
+    }
+
     return {
       overviewMap: map,
       aggregateShare: {
@@ -782,8 +793,9 @@ export function MarketPage(): JSX.Element {
       },
       d1Sum: {
         positive: d1Stats.positiveSum,
-        negative: d1Stats.negativeSum
-      }
+        negative: d1Stats.negativeSum,
+        netPercent: summary?.netPercent ?? 0
+      },
     };
   }, [data]);
 
@@ -881,15 +893,21 @@ export function MarketPage(): JSX.Element {
               </button>
             );
           })}
-          <div className="overview-card summary-card" role="presentation">
+          <a
+            className="overview-card summary-card link-card"
+            href="/index"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <div className="overview-header">
               <span>Сумма D1</span>
+              <span className="overview-direction">→</span>
             </div>
             <div className="overview-content">
               <span className="positive">▲ Рост {formatAggregatePercent(d1Sum.positive)}%</span>
               <span className="negative">▼ Падение {formatAggregatePercent(d1Sum.negative)}%</span>
             </div>
-          </div>
+          </a>
           <div className="overview-card summary-card" role="presentation">
             <div className="overview-header">
               <span>Все таймфреймы</span>

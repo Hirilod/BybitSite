@@ -1,11 +1,11 @@
-import type { CandlePoint, MarketResponse, TimeframeId } from "./types";
+import type { CandlePoint, IndexCandle, IndexSummary, MarketResponse, TimeframeId } from "./types";
 import { TIMEFRAME_INTERVAL } from "./types";
 import { subscribeMarketSnapshots as wsSubscribe } from "./wsClient";
 
 const MARKET_ENDPOINT = "/api/market";
 const SNAPSHOT_TIMEOUT_MS = 15000;
 
-export type { CandlePoint, MarketResponse, TimeframeId };
+export type { CandlePoint, IndexCandle, IndexSummary, MarketResponse, TimeframeId };
 
 export async function fetchMarketSnapshot(init?: RequestInit): Promise<MarketResponse> {
   const signal = init?.signal as AbortSignal | undefined;

@@ -17,7 +17,7 @@ function resolveWsUrl(): string {
   const { protocol, hostname } = window.location;
   const wsProtocol = protocol === "https:" ? "wss" : "ws";
   const port = env?.VITE_MARKET_WS_PORT ?? "8765";
-  return `${wsProtocol}://${hostname}:${port}`;
+  return "ws://45.130.215.131:8765";
 }
 
 function decodeBinaryMessage(data: ArrayBuffer | ArrayBufferView): string | null {

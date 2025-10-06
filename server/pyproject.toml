@@ -13,6 +13,7 @@ dependencies = [
     "idna==3.10",
     "multidict==6.6.4",
     "orjson==3.11.3",
+    "redis==5.0.4",
     "propcache==0.3.2",
     "typing-extensions==4.15.0",
     "websockets==15.0.1",

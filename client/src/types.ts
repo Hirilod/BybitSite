@@ -45,10 +45,35 @@ export interface TimeframeOverviewItem {
   losers: number;
 }
 
+export interface IndexCandle {
+  startTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  netPercent: number;
+  positiveSum: number;
+  negativeSum: number;
+  count: number;
+}
+
+export interface IndexSummary {
+  latest: number;
+  baseValue: number;
+  lastSlot: number;
+  netPercent: number;
+  positiveSum: number;
+  negativeSum: number;
+  count: number;
+  slotDuration: number;
+}
+
 export interface MarketResponse {
   updatedAt: number;
   entries: MarketTableEntry[];
   overview: TimeframeOverviewItem[];
+  indexSummary?: IndexSummary;
+  indexHistory?: IndexCandle[];
 }
 
 export interface CandlePoint {
